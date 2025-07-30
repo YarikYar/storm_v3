@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"math/big"
-	"math/rand"
 	"strings"
 
 	"github.com/xssnick/tonutils-go/address"
@@ -36,66 +35,91 @@ func main() {
 		log.Fatalf("failed to create wallet from seed: %v", err)
 	}
 
-	contractAddr := address.MustParseAddr("kQDgoBXen_jCWmKZG7B_DPy555G0saiYvJM0rOq15n3HTWIN") // адрес смарт фактори
+	// contractAddr := address.MustParseAddr("kQDgoBXen_jCWmKZG7B_DPy555G0saiYvJM0rOq15n3HTWIN") // адрес смарт фактори
+	nftAddr := address.MustParseAddr("kQB9r7UptPUZ71DAWwl-JYnPJ_4VSDoHfxqvHnUvBm4ljb8A")
+	// queryID := uint64(0)
+	// amount := tlb.MustFromTON("0.5").Nano()
+	//
+	// publicKey, err := extractPublicKey(strings.Split(seedPhrase, " "))
+	//  if err != nil {
+	//  	log.Fatalf("failed to extract public key: %v", err)
+	// }
+	//
+	// bodyCell := createDepositNativeBodyWithKey(queryID, publicKey)
+	//
+	// err = sendInternalMessage(walletInstance, contractAddr, amount, bodyCell)
+	// if err != nil {
+	// 	log.Fatalf("failed to send message: %v", err)
+	// }
+	//
+	// fmt.Println("Message sent successfully!")
+	// 	collection := nft.NewCollectionClient(api, contractAddr)
+	// collectionData, err := collection.GetCollectionData(context.Background())
+	// if err != nil {
+	//     panic(err)
+	// }
+	// 	fmt.Println("collectionData: ", collectionData)
+	// hash := big.NewInt(0).SetBytes(walletInstance.Address().Data())
+	// fmt.Println(hash)
+	// callGetterGetNFTAddressByIndex(api, contractAddr, hash)
+	cell := createDepositNativeBodyWithoutKey(0, walletInstance.WalletAddress(), false, false)
 
-	queryID := rand.Uint64()
-	amount := tlb.MustFromTON("0.5").Nano()
-	receiverAddress := walletInstance.Address() // адреса валлета нашего
-	init := true
-
-	publicKey, err := extractPublicKey(strings.Split(seedPhrase, " "))
-	if err != nil {
-		log.Fatalf("failed to extract public key: %v", err)
-	}
-
-	bodyCell := createDepositNativeBodyWithKey(queryID, amount, receiverAddress, init, publicKey)
-
-	err = sendInternalMessage(walletInstance, contractAddr, amount, bodyCell)
+	err = sendInternalMessage(walletInstance, nftAddr, big.NewInt(1000000000), cell)
 	if err != nil {
 		log.Fatalf("failed to send message: %v", err)
 	}
-
-	fmt.Println("Message sent successfully!")
 }
 
 func extractPublicKey(mnemonic []string) ([]byte, error) {
 	mac := hmac.New(sha512.New, []byte(strings.Join(mnemonic, " ")))
 	hash := mac.Sum(nil)
-	k := pbkdf2.Key(hash, []byte("TON default seed"), 100000, 32, sha512.New) // In TON libraries, "TON default seed" is used as salt when getting keys
-	// 32 is a key len
+	k := pbkdf2.Key(hash, []byte("TON default seed"), 100000, 32, sha512.New)
 
-	privateKey := ed25519.NewKeyFromSeed(k) // get private key
+	privateKey := ed25519.NewKeyFromSeed(k)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 
 	return publicKey, nil
 }
 
-func createDepositNativeBodyWithKey(queryID uint64, amount *big.Int, receiverAddress *address.Address, init bool, publicKey []byte) *cell.Cell {
+func createDepositNativeBodyWithKey(queryID uint64, publicKey []byte) *cell.Cell {
 	builder := cell.BeginCell()
 
-	// #29bb3721
-	builder.MustStoreUInt(0x29bb3721, 32)
-
-	// query_id:uint64
+	builder.MustStoreUInt(0x764019e5, 32)
 	builder.MustStoreUInt(queryID, 64)
+	dict := cell.NewDict(256)
+	dict.Set(cell.BeginCell().MustStoreUInt(0, 256).EndCell(), cell.BeginCell().MustStoreSlice(publicKey, 256).EndCell())
+	builder.MustStoreDict(dict)
 
-	// amount:Coins
-	builder.MustStoreCoins(amount.Uint64())
+	return builder.EndCell()
+}
 
-	// receiver_address:MsgAddressInt
+// Вызов геттера get_nft_address_by_index
+func callGetterGetNFTAddressByIndex(api *ton.APIClient, contractAddr *address.Address, index *big.Int) *address.Address {
+	ctx := context.Background()
+	master, _ := api.GetMasterchainInfo(ctx)
+
+	result, err := api.RunGetMethod(ctx, master, contractAddr, "get_nft_address_by_index", index)
+	if err != nil {
+		fmt.Printf("error: %v", err)
+	}
+	fmt.Printf("result: %v", result.AsTuple()...)
+	val, _ := result.MustSlice(0).MustToCell().BeginParse().LoadAddr()
+	val.SetTestnetOnly(true)
+	val.SetBounce(true)
+
+	fmt.Printf("result: %v", val)
+	return val
+}
+
+// Создание тела сообщения deposit_native без передачи публичного ключа
+func createDepositNativeBodyWithoutKey(queryID uint64, receiverAddress *address.Address, init bool, set_key bool) *cell.Cell {
+	builder := cell.BeginCell()
+	builder.MustStoreUInt(0x29bb3721, 32)
+	builder.MustStoreUInt(queryID, 64)
+	builder.MustStoreCoins(100000000)
 	builder.MustStoreAddr(receiverAddress)
-
-	// init:Bool
 	builder.MustStoreBoolBit(init)
-
-	// key_init:InitializationRequest
-	builder.MustStoreBoolBit(true) // need_key_init$1
-
-	// user_public_keys:(HashmapE 256 Cell)
-	// dict := cell.NewDict(256)
-	// dict.Set(cell.BeginCell().MustStoreUInt(0, 256).EndCell(), cell.BeginCell().MustStoreSlice(publicKey, 256).EndCell())
-	// builder.MustStoreDict(dict)
-
+	builder.MustStoreBoolBit(set_key) 
 	return builder.EndCell()
 }
 
