@@ -34,7 +34,6 @@ var (
 
 type IntentData struct {
 	IntentBOC string `json:"tx"`
-	Signature string `json:"signature"`
 	Format string`json:"format"` 
 }
 
@@ -49,8 +48,9 @@ func main() {
 
 	seedPhrase := "forget guide boost unable flip stuff animal name brand eyebrow adapt tip pull tribe exile fabric manage elephant dice trash security cook title arch"
 	userPublicKey, userPrivateKey = extractPublicKey(strings.Split(seedPhrase, " "))
-	shift = 1021
-	bitNumber = 512
+	bit_shift := FromSeqno(32)
+	shift = uint64(bit_shift.Shift)
+	bitNumber = uint64(bit_shift.BitNumber)
 	// walletInstance, err := wallet.FromSeed(api, strings.Split(seedPhrase, " "), wallet.V4R2)
 	// if err != nil {
 	// 	log.Fatalf("failed to create wallet from seed: %v", err)
@@ -99,12 +99,16 @@ func main() {
 	backendURL := "https://api.stage.stormtrade.dev/instant-trading/tx/broadcast"
 
 	// Создаем структуру данных
+
+	toSend := cell.BeginCell()
+	toSend.MustStoreUInt(0x588b3270, 32)
+	toSend.MustStoreRef(intentCell)
+	toSend.MustStoreSlice(signature, 512)
+	cell := toSend.EndCell()
 	data := IntentData{
-		IntentBOC: fmt.Sprintf("%x", intentBOC),
-		Signature: fmt.Sprintf("%x", signature),
+		IntentBOC: fmt.Sprintf("%x", cell),
 		Format: "hex",
 	}
-
 	// Преобразуем данные в JSON
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -273,7 +277,7 @@ func createMarketOrder() *cell.Cell {
 
 	builder.MustStoreUInt(3, 4) // market_order#3
 
-	expiration := uint32(time.Now().Add(10 * time.Minute).Unix()) // Через 10 минут
+	expiration := uint32(time.Now().Add(3600 * time.Minute).Unix()) // Через 10 минут
 	builder.MustStoreUInt(uint64(expiration), 32)
 
 	// direction:Direction (short$1)
@@ -420,4 +424,22 @@ func createUserIntent(queryShift, queryBitNumber uint64, refShift, refBitNumber 
 	}
 
 	return builder.EndCell(), nil
+}
+type QueryId struct {
+	Shift     uint16 `tlb:"## 10" json:"shift"`
+	BitNumber uint16 `tlb:"## 13" json:"bit_number"`
+}
+
+func (i QueryId) Seqno() uint64 {
+	return uint64(i.BitNumber + i.Shift*1023)
+}
+
+func FromSeqno(i uint64) *QueryId {
+	shift := i / 1023
+	bitNumber := i % 1023
+
+	return &QueryId{
+		Shift:     uint16(shift),
+		BitNumber: uint16(bitNumber),
+	}
 }
