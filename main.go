@@ -65,13 +65,6 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Генерация ключей для примера (в реальности используйте существующие)
-	// pubKey, privKey, err := ed25519.GenerateKey(nil)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// userPrivateKey = privKey
-	// userPublicKey = pubKey
 
 	// Создание ордера
 	marketOrderCell := createMarketOrder()
@@ -95,20 +88,32 @@ func main() {
 	fmt.Printf("Intent BOC (hex): %x\n", intentBOC)
 	signature := ed25519.Sign(userPrivateKey, intentBOC)
 	fmt.Printf("Signature (hex): %x\n", signature)
-
 	backendURL := "https://api.stage.stormtrade.dev/instant-trading/tx/broadcast"
 
 	// Создаем структуру данных
 
 	toSend := cell.BeginCell()
 	toSend.MustStoreUInt(0x588b3270, 32)
-	toSend.MustStoreRef(intentCell)
 	toSend.MustStoreSlice(signature, 512)
-	cell := toSend.EndCell()
+	toSend.MustStoreRef(intentCell)
+	to_cell := toSend.EndCell()
+
+	toSendExt := &tlb.ExternalMessage{
+		DstAddr: saAddr,
+		Body: to_cell,
+	}
+
+	// ext_cell := cell.BeginCell()
+	// ext_cell.StoreBuilder(toSendExt.Body.ToBuilder())
+	// ext_cell_ok := ext_cell.EndCell()
+
+
 	data := IntentData{
-		IntentBOC: fmt.Sprintf("%x", cell),
+		IntentBOC: fmt.Sprintf("%x", toSendExt.Payload().ToBOC()),
+		// IntentBOC: fmt.Sprintf("%x", ext_cell_ok),
 		Format: "hex",
 	}
+	fmt.Printf("result data: %s\n",data.IntentBOC)
 	// Преобразуем данные в JSON
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -128,12 +133,8 @@ func main() {
 		return
 	}
 
-	// Устанавливаем заголовки
 	req.Header.Set("Content-Type", "application/json")
-	// Если нужна авторизация:
-	// req.Header.Set("Authorization", "Bearer YOUR_TOKEN")
 
-	// Отправляем запрос
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Printf("Error sending request: %v\n", err)
@@ -141,7 +142,6 @@ func main() {
 	}
 	defer resp.Body.Close()
 
-	// Читаем ответ
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Printf("Error reading response: %v\n", err)
@@ -215,7 +215,6 @@ func createDepositNativeBodyWithKey(queryID uint64, publicKey []byte) *cell.Cell
 	return builder.EndCell()
 }
 
-// Вызов геттера get_nft_address_by_index
 func callGetterGetNFTAddressByIndex(api *ton.APIClient, contractAddr *address.Address, index *big.Int) *address.Address {
 	ctx := context.Background()
 	master, _ := api.GetMasterchainInfo(ctx)
@@ -233,7 +232,6 @@ func callGetterGetNFTAddressByIndex(api *ton.APIClient, contractAddr *address.Ad
 	return val
 }
 
-// Создание тела сообщения deposit_native без передачи публичного ключа
 func createDepositNativeBodyWithoutKey(queryID uint64, receiverAddress *address.Address, init bool, set_key bool) *cell.Cell {
 	builder := cell.BeginCell()
 	builder.MustStoreUInt(0x29bb3721, 32)
