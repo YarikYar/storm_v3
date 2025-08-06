@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/hmac"
 	"crypto/sha512"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -48,7 +49,7 @@ func main() {
 
 	seedPhrase := "forget guide boost unable flip stuff animal name brand eyebrow adapt tip pull tribe exile fabric manage elephant dice trash security cook title arch"
 	userPublicKey, userPrivateKey = extractPublicKey(strings.Split(seedPhrase, " "))
-	bit_shift := FromSeqno(32)
+	bit_shift := FromSeqno(109)
 	shift = uint64(bit_shift.Shift)
 	bitNumber = uint64(bit_shift.BitNumber)
 	// walletInstance, err := wallet.FromSeed(api, strings.Split(seedPhrase, " "), wallet.V4R2)
@@ -86,7 +87,7 @@ func main() {
 	intentBOC := intentCell.ToBOCWithFlags(false)
 
 	fmt.Printf("Intent BOC (hex): %x\n", intentBOC)
-	signature := ed25519.Sign(userPrivateKey, intentBOC)
+	signature := intentCell.Sign(userPrivateKey)
 	fmt.Printf("Signature (hex): %x\n", signature)
 	backendURL := "https://api.stage.stormtrade.dev/instant-trading/tx/broadcast"
 
@@ -94,8 +95,8 @@ func main() {
 
 	toSend := cell.BeginCell()
 	toSend.MustStoreUInt(0x588b3270, 32)
-	toSend.MustStoreSlice(signature, 512)
 	toSend.MustStoreRef(intentCell)
+	toSend.MustStoreSlice(signature, 512)
 	to_cell := toSend.EndCell()
 
 	toSendExt := &tlb.ExternalMessage{
@@ -106,11 +107,14 @@ func main() {
 	// ext_cell := cell.BeginCell()
 	// ext_cell.StoreBuilder(toSendExt.Body.ToBuilder())
 	// ext_cell_ok := ext_cell.EndCell()
+	ext_cell_ok, _ := tlb.ToCell(toSendExt)
+
+	cell_bytes := ext_cell_ok.ToBOCWithFlags(false)
+	cb_string := hex.EncodeToString(cell_bytes)
 
 
 	data := IntentData{
-		IntentBOC: fmt.Sprintf("%x", toSendExt.Payload().ToBOC()),
-		// IntentBOC: fmt.Sprintf("%x", ext_cell_ok),
+		IntentBOC: cb_string,
 		Format: "hex",
 	}
 	fmt.Printf("result data: %s\n",data.IntentBOC)
